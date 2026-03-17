@@ -1,0 +1,30 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs
+.vscode/
+.idea/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Logs
+*.log
+streamlit_log.txt
+st_crash.txt
+stderr.txt
+nn_error.txt
+nn_metrics.txt
+test_metrics.txt
+*.json
