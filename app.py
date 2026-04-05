@@ -7,10 +7,7 @@ import altair as alt
 import time
 from sklearn.metrics import roc_curve
 
-from eda_mimic import load_data, preprocess_data, feature_engineering, train_models, evaluate_models, FEATURE_COLUMNS, CONTINUOUS_COLUMNS
-from federated_nn import run_simulation as run_nn_simulation
-
-st.set_page_config(page_title="Healthcare AI Hub", page_icon="🏥", layout="wide")
+st.set_page_config(page_title="Federated AI Hub", page_icon="🌐", layout="wide")
 
 st.markdown("""
 <style>
@@ -23,273 +20,232 @@ st.markdown("""
         text-align: center;
         transition: transform 0.2s;
     }
-    .metric-card:hover {
-        transform: translateY(-5px);
-    }
-    .metric-label {
-        font-size: 1.1rem;
-        color: #888;
-        margin-bottom: 5px;
-    }
-    .metric-value {
-        font-size: 2.5rem;
-        font-weight: bold;
-    }
+    .metric-value { font-size: 2.2rem; font-weight: bold; }
     .pulse-node {
-        width: 25px;
-        height: 25px;
-        border-radius: 50%;
-        display: inline-block;
-        background-color: #10b981;
-        animation: pulse 2s infinite;
-        margin: 10px;
+        width: 25px; height: 25px; border-radius: 50%; display: inline-block;
+        background-color: #10b981; animation: pulse 2s infinite; margin: 10px;
     }
+    .pulse-node-active { background-color: #f59e0b; }
     @keyframes pulse {
         0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
         70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
         100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
     }
+    .log-box { font-family: monospace; font-size: 0.9em; background-color: #1e1e1e; color: #a3e635; padding: 10px; border-radius: 5px; height: 250px; overflow-y: auto; }
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data
+# MULTI-DOMAIN LOADER
 @st.cache_resource
-def load_and_prep_all():
-    df = load_data()
-    df_ml = preprocess_data(df)
-    X_train, X_test, y_train, y_test, scaler = feature_engineering(df_ml)
-    lr, rf = train_models(X_train, y_train)
-    results = evaluate_models({'Logistic Regression': lr, 'Random Forest': rf}, X_test, y_test)
-    return df, df_ml, X_train, X_test, y_train, y_test, scaler, lr, rf, results
+def load_domain_assets(domain_name):
+    if "Healthcare" in domain_name:
+        import eda_mimic
+        df = eda_mimic.load_data()
+        df_ml = eda_mimic.preprocess_data(df)
+        X_tr, X_te, y_tr, y_te, scl = eda_mimic.feature_engineering(df_ml)
+        lr, rf = eda_mimic.train_models(X_tr, y_tr)
+        res = eda_mimic.evaluate_models({'Logistic Regression': lr, 'Random Forest': rf}, X_te, y_te)
+        from federated_nn import run_simulation
+        return df, X_tr, X_te, y_tr, y_te, scl, res, run_simulation, "Healthcare", True
+    elif "Finance" in domain_name:
+        import federated_finance
+        df, X_tr, X_te, y_tr, y_te, scl, res = federated_finance.get_centralized_metrics()
+        from federated_finance import run_simulation
+        return df, X_tr, X_te, y_tr, y_te, scl, res, run_simulation, "Finance", False
+    else:
+        import federated_student
+        df, X_tr, X_te, y_tr, y_te, scl, res = federated_student.get_centralized_metrics()
+        from federated_student import run_simulation
+        return df, X_tr, X_te, y_tr, y_te, scl, res, run_simulation, "Student", False
 
-with st.spinner("Initializing Clinical ML Pipeline (Loading & Processing eda_mimic.py)..."):
-    try:
-        df, df_ml, X_train, X_test, y_train, y_test, scaler, lr, rf, results = load_and_prep_all()
-    except Exception as e:
-        st.error(f"Error loading system: {e}. Please ensure admissions.csv, patients.csv, and icustays.csv exist.")
-        st.stop()
-
-
-st.sidebar.title("🏥 Navigation")
-nav = st.sidebar.radio("Go to:", [
-    "📊 Project Overview",
-    "📂 Data Summary",
-    "⚙️ Preprocessing Pipeline",
-    "📈 Model Performance",
-    "📉 Confusion Matrix",
-    "📊 ROC Curve",
-    "🌲 Feature Importance",
-    "🧠 Federated Learning",
-    "🧪 Live Prediction",
-    "📌 Final Insights"
+# TOP DROPDOWN: Domain Select
+c1, c2 = st.columns([8, 2])
+with c1: st.title("🌐 Universal Federated Learning Dashboard")
+with c2: domain_selection = st.selectbox("Select Domain", [
+    "Healthcare (MIMIC-IV)", 
+    "Finance (German Credit)", 
+    "Student Performance"
 ])
 
-if nav == "📊 Project Overview":
-    st.title("📊 Project Overview: ICU Mortality Prediction")
-    st.write("---")
-    st.markdown("""
-    ### Problem Statement
-    In clinical settings, identifying high-risk patients early is crucial for resource allocation and preemptive care. 
-    This system predicts **hospital mortality** for patients admitted to the ICU.
-    
-    ### The Dataset
-    We utilize a subset of the prestigious **MIMIC-IV** dataset, integrating patient demographics, admission information, and ICU stay characteristics.
-    
-    ### Why Recall Matters Most
-    > **⚠️ Clinical Alert**  
-    > In healthcare, **Recall (Sensitivity)** is prioritized over raw Accuracy. A false negative (failing to identify a patient at risk of dying) carries devastating consequences compared to a false positive (which may simply result in extra monitoring).
-    """)
-    
-elif nav == "📂 Data Summary":
-    st.title("📂 Data Summary")
-    st.write("---")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Raw Patient Records", df.shape[0])
-    col2.metric("Extracted Features", len(FEATURE_COLUMNS))
-    col3.metric("Mortality Rate", f"{(df['hospital_expire_flag'].mean()*100):.2f}%")
-    
-    st.subheader("Raw Data Sample")
-    st.dataframe(df.head(15))
-    
-    st.subheader("Core Features Used")
-    st.write([col for col in FEATURE_COLUMNS])
+with st.spinner(f"Loading {domain_selection} Models & Data..."):
+    df, X_train, X_test, y_train, y_test, scaler, results, sim_func, d_type, show_roc = load_domain_assets(domain_selection)
 
-elif nav == "⚙️ Preprocessing Pipeline":
-    st.title("⚙️ Preprocessing Pipeline")
-    st.write("---")
-    
-    st.markdown("""
-    To train robust models, we execute a rigorous preprocessing pipeline rooted in `eda_mimic.py`:
-    1. **Data Integration**: Securely joining Admissions, Patients, and ICU stays.
-    2. **Data Cleaning**: Rows with missing core features are dropped.
-    3. **Encoding**: Categorical variables (Gender, Admission Type, ICU Unit) are converted to multiple numeric columns using One-Hot Encoding.
-    4. **Standardization**: Continuous variables (`anchor_age`, `los`) are scaled to center bounds relying on standard deviations.
-    5. **Imbalance Handling**: The minority class (Mortality) is synthetically upsampled during training to prevent the model from blindly predicting survival.
-    """)
-    st.subheader("Preprocessed Feature Space (Ready for ML)")
-    st.dataframe(df_ml.head(10))
+if results is None:
+    st.error("Error formatting datasets for this domain perfectly. Fallback required.")
+    st.stop()
 
-elif nav == "📈 Model Performance":
-    st.title("📈 Model Performance (Centralized)")
-    st.write("---")
+# SIDEBAR NAVIGATION
+st.sidebar.title("Navigation")
+nav = st.sidebar.radio("Go to:", [
+    "🧠 Overview",
+    "📊 Centralized Models",
+    "🌐 Federated Learning",
+    "🧪 Live Prediction"
+])
+
+st.write("---")
+
+if nav == "🧠 Overview":
+    st.header(f"🧠 {d_type} Analysis Overview")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"""
+        **Domain Objective:**
+        - {"Predicting ICU Mortality to prioritize clinical resources." if d_type=="Healthcare" else "Predicting Credit Risk / Default probability." if d_type=="Finance" else "Predicting Academic Pass status for early intervention."}
+        - **Data Shape**: `{df.shape[0]} records`, `{df.shape[1]} raw columns`
+        - {"**Critical Note**: We optimize heavily for **Recall** in healthcare to minimize false negatives (missed deaths)." if d_type=="Healthcare" else "Standard balanced accuracy is maintained."}
+        """)
+    with c2:
+        if d_type == "Healthcare":
+            st.metric("Mortality Rate (Imbalance)", f"{(df['hospital_expire_flag'].mean()*100):.1f}%")
+        else:
+            st.metric("Dataset Head", f"{df.shape[0]} entities")
+    st.dataframe(df.head(10), use_container_width=True)
+
+elif nav == "📊 Centralized Models":
+    st.header(f"📊 Centralized Models ({d_type})")
     
     for model_name, metrics in results.items():
-        st.subheader(f"Model: {model_name}")
-        cols = st.columns(5)
-        cols[0].metric("Accuracy", f"{metrics['accuracy']:.3f}")
-        cols[1].metric("Precision", f"{metrics['precision']:.3f}")
-        cols[2].metric("Recall", f"{metrics['recall']:.3f}")
-        cols[3].metric("F1-Score", f"{metrics['f1_score']:.3f}")
-        cols[4].metric("ROC-AUC", f"{metrics['roc_auc']:.3f}")
-        st.write("")
-
-elif nav == "📉 Confusion Matrix":
-    st.title("📉 Confusion Matrix Analysis")
-    st.write("---")
-    st.markdown("Visualizing True Positives vs False Negatives is critical for clinical adoption. Notice how our balanced models minimize False Negatives.")
-    
-    col1, col2 = st.columns(2)
-    def plot_cm(cm, title):
-        fig, ax = plt.subplots(figsize=(5,4))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
-        ax.set_title(title)
-        ax.set_xlabel('Predicted')
-        ax.set_ylabel('Actual (0=Survive, 1=Die)')
-        return fig
+        st.subheader(f"⚡ {model_name}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Accuracy", f"{metrics['accuracy']:.3f}")
+        c2.metric("Precision", f"{metrics['precision']:.3f}")
+        c3.metric("Recall", f"{metrics['recall']:.3f}")
+        c4.metric("F1-Score", f"{metrics['f1_score']:.3f}")
         
-    with col1:
-        st.pyplot(plot_cm(results['Logistic Regression']['confusion_matrix'], "Logistic Regression"))
-    with col2:
-        st.pyplot(plot_cm(results['Random Forest']['confusion_matrix'], "Random Forest"))
+        c_fig1, c_fig2 = st.columns(2)
+        with c_fig1:
+            fig, ax = plt.subplots(figsize=(4,3))
+            sns.heatmap(metrics['confusion_matrix'], annot=True, fmt='d', cmap='Blues', ax=ax)
+            ax.set_title("Confusion Matrix")
+            st.pyplot(fig)
+            
+        with c_fig2:
+            if show_roc and "model_obj" in metrics and hasattr(metrics['model_obj'], "predict_proba"):
+                probs = metrics['model_obj'].predict_proba(X_test)[:, 1]
+                fpr, tpr, _ = roc_curve(y_test, probs)
+                fig_roc, ax_roc = plt.subplots(figsize=(4,3))
+                ax_roc.plot(fpr, tpr, label=f"AUC = {metrics['roc_auc']:.2f}", color='#8b5cf6')
+                ax_roc.plot([0, 1], [0, 1], 'k--')
+                ax_roc.set_title("ROC Curve")
+                ax_roc.legend()
+                st.pyplot(fig_roc)
+            else:
+                st.info("ROC-AUC tracking disabled for native ensemble models in this domain.")
 
-elif nav == "📊 ROC Curve":
-    st.title("📊 Receiver Operating Characteristic (ROC)")
-    st.write("---")
-    st.markdown("""
-    **Why ROC-AUC?** Accuracy is misleading when approx 90% of patients survive. ROC-AUC evaluates the model's true capability to distinguish classes cleanly across *all* probability thresholds.
-    """)
+elif nav == "🌐 Federated Learning":
+    st.header(f"🌐 Real-Time Federated Learning ({d_type})")
+    st.markdown("Federated edge nodes stream gradients back to the central orchestrator asynchronously without exposing raw PII data.")
     
-    fig, ax = plt.subplots(figsize=(8,6))
-    for model_name, metrics in results.items():
-        probs = metrics['model_obj'].predict_proba(X_test)[:, 1]
-        fpr, tpr, _ = roc_curve(y_test, probs)
-        ax.plot(fpr, tpr, label=f"{model_name} (AUC = {metrics['roc_auc']:.3f})", lw=2)
-        
-    ax.plot([0, 1], [0, 1], 'k--', label='Random Guess')
-    ax.set_xlabel('False Positive Rate')
-    ax.set_ylabel('True Positive Rate')
-    ax.set_title('ROC Curve Comparison')
-    ax.legend(loc="lower right")
-    ax.grid(alpha=0.3)
+    # Sim Config
+    c1, c2, c3 = st.columns(3)
+    num_rounds = c1.slider("Comm Rounds", 1, 15, 5)
+    num_clients = c2.slider("Edge Clients", 2, 6, 3)
+    start_btn = c3.button("Start Federated Training 🚀", use_container_width=True)
     
-    col1, col2, col3 = st.columns([1, 8, 1])
-    with col2:
-        st.pyplot(fig)
-
-elif nav == "🌲 Feature Importance":
-    st.title("🌲 Model Interpretability: Feature Importance")
-    st.write("---")
-    st.markdown("Doctors need to know *why* the model flags a patient. Here is the feature influence learned natively by the Random Forest.")
-    
-    rf_model = results['Random Forest']['model_obj']
-    importances = rf_model.feature_importances_
-    features = X_train.columns
-    
-    fi_df = pd.DataFrame({'Feature': features, 'Importance': importances})
-    fi_df = fi_df.sort_values(by='Importance', ascending=False).head(15)
-    
-    chart = alt.Chart(fi_df).mark_bar(color='#10b981').encode(
-        x=alt.X('Importance:Q', title='Relative Importance (%)'),
-        y=alt.Y('Feature:N', sort='-x', title='Predictor (Included Extracted Dummies)'),
-        tooltip=['Feature', 'Importance']
-    ).properties(height=500).interactive()
-    
-    st.altair_chart(chart, use_container_width=True)
-
-elif nav == "🧠 Federated Learning":
-    st.title("🧠 Privacy-Preserving Federated Learning")
-    st.write("---")
-    st.markdown("""
-    ### Why Federated Learning in Healthcare?
-    Patient data is sensitive and legally protected under regulations like HIPAA and GDPR. Federated Learning allows multiple hospital datacenters to train a global Deep ResNet mortality predictor **collaboratively without ever transferring raw patient data**. 
-    """)
-    
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("FL Configuration")
-    num_rounds = st.sidebar.slider("Communication Rounds", 1, 10, 3)
-    num_clients = st.sidebar.slider("Number of Hospitals", 2, 5, 3)
-    
-    st.markdown(f"#### Active Federated Hospital Nodes: {num_clients}")
-    nodes_html = "".join([f"<div class='pulse-node' style='animation-delay: {i*0.2}s' title='Hospital {i+1}'></div>" for i in range(num_clients)])
+    # Active Nodes UI
+    nodes_html = f"<b>Active Edge Nodes:</b><br>" + "".join([f"<div class='pulse-node' title='Client {i+1}'></div>" for i in range(num_clients)])
     st.markdown(nodes_html, unsafe_allow_html=True)
     
-    if st.button("Start Federated Deep ResNet Training"):
-        with st.spinner("Connecting Distributed Clients and Initializing FL Rounds..."):
-            fl_results = run_nn_simulation(num_rounds, num_clients)
+    # Layout rendering areas before training starts so they dynamically fill!
+    st.write("### Live Training Telemetry")
+    progress_bar = st.progress(0)
+    
+    graph_col1, graph_col2, graph_col3 = st.columns(3)
+    with graph_col1:
+        st.caption("📈 Accuracy vs Rounds")
+        acc_chart = st.empty()
+        df_acc = pd.DataFrame(columns=["Round", "Accuracy"]).set_index("Round")
+        acc_chart.line_chart(df_acc, color="#10b981", height=200)
+    
+    with graph_col2:
+        st.caption("📉 Loss vs Rounds")
+        loss_chart = st.empty()
+        df_loss = pd.DataFrame(columns=["Round", "Loss"]).set_index("Round")
+        loss_chart.line_chart(df_loss, color="#f43f5e", height=200)
+        
+    with graph_col3:
+        if show_roc:
+            st.caption("📊 ROC-AUC vs Rounds")
+            roc_chart = st.empty()
+            df_roc = pd.DataFrame(columns=["Round", "ROC-AUC"]).set_index("Round")
+            roc_chart.line_chart(df_roc, color="#8b5cf6", height=200)
             
-        st.success("Federated Training Execution Complete!")
+    st.caption("Live Training Action Logs")
+    log_area = st.empty()
+    
+    if start_btn:
+        logs_text = ["Federated Engine Booting Up...\n"]
+        log_area.markdown(f'<div class="log-box">{logs_text[0]}</div>', unsafe_allow_html=True)
         
-        metrics = fl_results['metrics']
-        cols = st.columns(4)
-        cols[0].metric("Global Accuracy", f"{metrics['Accuracy']:.3f}")
-        cols[1].metric("Global Precision", f"{metrics['Precision']:.3f}")
-        cols[2].metric("Global Recall", f"{metrics['Recall']:.3f}")
-        cols[3].metric("Global ROC-AUC", f"{metrics['ROC-AUC']:.3f}")
+        hist_rounds, hist_acc, hist_loss, hist_roc = [], [], [], []
         
+        def handle_live_callback(metrics, msg):
+            if msg:
+                logs_text[0] += f"> {msg}\n"
+                log_area.markdown(f'<div class="log-box">{logs_text[0]}</div>', unsafe_allow_html=True)
+                
+            if metrics and "accuracy" in metrics:
+                r = metrics["round"]
+                # Update line charts
+                hist_rounds.append(r)
+                hist_acc.append(metrics["accuracy"])
+                hist_loss.append(metrics["loss"])
+                
+                acc_chart.line_chart(pd.DataFrame({"Round": hist_rounds, "Accuracy": hist_acc}).set_index("Round"), color="#10b981", height=200)
+                loss_chart.line_chart(pd.DataFrame({"Round": hist_rounds, "Loss": hist_loss}).set_index("Round"), color="#f43f5e", height=200)
+                
+                if show_roc and "roc_auc" in metrics:
+                    hist_roc.append(metrics["roc_auc"])
+                    roc_chart.line_chart(pd.DataFrame({"Round": hist_rounds, "ROC-AUC": hist_roc}).set_index("Round"), color="#8b5cf6", height=200)
+                
+                progress_bar.progress(r / num_rounds)
+                
+        # Block until completion with real-time Streamlit yielding
+        final_res = sim_func(num_rounds, num_clients, live_callback=handle_live_callback)
+        progress_bar.progress(1.0)
+        st.success(f"{d_type} Protocol Accomplished!")
+        
+        cm = final_res["confusion_matrix"]
+        m = final_res["metrics"]
+        
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Final Accuracy", f"{m['Accuracy']:.3f}")
+        s2.metric("Final F1", f"{m['F1-Score']:.3f}")
+        if 'Precision' in m: s3.metric("Final Precision", f"{m['Precision']:.3f}")
+        if cm: s4.metric("True Positives", cm['tp'])
+
 elif nav == "🧪 Live Prediction":
-    st.title("🧪 Live Clinical Prediction Interface")
-    st.write("---")
-    st.markdown("Enter patient admission details here and run a live mortality probabilistic inference. This backend runs entirely on our strictly synchronized `eda_mimic.py` pipeline.")
+    st.header(f"🧪 Live Prediction ({d_type})")
     
-    with st.form("patient_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            age = st.number_input("Patient Age (anchor_age)", min_value=18, max_value=120, value=65)
-            los = st.number_input("Prior ICU Length of Stay (days)", min_value=0.0, max_value=200.0, value=3.5)
-            gender = st.selectbox("Gender", ["M", "F"])
-        with col2:
-            admission_type = st.selectbox("Admission Type", ["URGENT", "EW EMER.", "ELECTIVE", "DIRECT OBSERVATION", "EU OBSERVATION"])
-            careunit = st.selectbox("First Care Unit", ["Medical Intensive Care Unit (MICU)", "Cardiac Vascular Intensive Care Unit (CVICU)", "Surgical Intensive Care Unit (SICU)", "Trauma SICU (TSICU)", "Coronary Care Unit (CCU)"])
-        
-        submit = st.form_submit_button("Assess Mortality Risk")
-        
-    if submit:
-        sample_df = pd.DataFrame(0, index=[0], columns=X_train.columns)
-        
-        cont_vals = pd.DataFrame([[age, los]], columns=CONTINUOUS_COLUMNS)
-        scaled_vals = scaler.transform(cont_vals)
-        sample_df['anchor_age'] = scaled_vals[0, 0]
-        sample_df['los'] = scaled_vals[0, 1]
-        
-        if f"gender_{gender}" in sample_df.columns:
-            sample_df[f"gender_{gender}"] = 1
-        if f"admission_type_{admission_type}" in sample_df.columns:
-            sample_df[f"admission_type_{admission_type}"] = 1
-        if f"first_careunit_{careunit}" in sample_df.columns:
-            sample_df[f"first_careunit_{careunit}"] = 1
+    if d_type == "Healthcare":
+        from eda_mimic import CONTINUOUS_COLUMNS
+        st.markdown("Enter clinical parameters to predict hospital mortality probability using the globally trained Random Forest.")
+        with st.form("pred_form"):
+            col1, col2 = st.columns(2)
+            age = col1.number_input("Patient Age", 18, 100, 65)
+            los = col1.number_input("ICU Length of Stay", 0.0, 100.0, 3.5)
+            gender = col2.selectbox("Gender", ["M", "F"])
+            adm_type = col2.selectbox("Admission Type", ["URGENT", "EW EMER.", "ELECTIVE", "DIRECT OBSERVATION"])
+            careunit = st.selectbox("First Care Unit", ["MICU", "CVICU", "SICU", "TSICU", "CCU"])
             
-        prob = results['Random Forest']['model_obj'].predict_proba(sample_df)[0][1]
-        
-        st.markdown("---")
-        if prob >= 0.5:
-            st.error(f"🚨 **HIGH RISK**: This patient has a **{prob*100:.1f}%** localized probability of non-survival.")
-            st.progress(prob)
-        else:
-            st.success(f"✅ **LOWER RISK**: This patient has a **{prob*100:.1f}%** localized probability of non-survival.")
-            st.progress(prob)
+            submit = st.form_submit_button("Run Probabilistic Inference")
             
-elif nav == "📌 Final Insights":
-    st.title("📌 Clinical System Insights")
-    st.write("---")
-    
-    st.markdown("""
-    ### Why Random Forest Outperforms Logistic Regression
-    The healthcare data environment is highly non-linear. Interactions between patient variables (e.g., an elderly patient in the CVICU vs a young patient in the MICU) are dynamically captured by Random Forest tree depth branching splits. Conversely, Logistic Regression erroneously assumes independence across these features.
-    
-    ### Diagnostic Efficacy
-    - Our **Recall-centric optimization framework** mitigates deadly False Negatives without destroying True Positive identification protocols.
-    - An elevated **ROC-AUC** across centralized models demonstrates robust predictive threshold signaling despite extreme survival-class skew.
-    - Seamlessly porting the exact same rigorous standard scaler & identical feature dimensions to an encoded **Federated Learning ResNet** guarantees scaling capabilities for massive health consortia.
-    
-    > *End of Output Summary Architecture.*
-    """)
+        if submit:
+            sample_df = pd.DataFrame(0, index=[0], columns=X_train.columns)
+            cont_vals = pd.DataFrame([[age, los]], columns=CONTINUOUS_COLUMNS)
+            scaled = scaler.transform(cont_vals)
+            sample_df['anchor_age'] = scaled[0, 0]
+            sample_df['los'] = scaled[0, 1]
+            if f"gender_{gender}" in sample_df.columns: sample_df[f"gender_{gender}"] = 1
+            if f"admission_type_{adm_type}" in sample_df.columns: sample_df[f"admission_type_{adm_type}"] = 1
+            if f"first_careunit_Medical Intensive Care Unit ({careunit})" in sample_df.columns: 
+                sample_df[f"first_careunit_Medical Intensive Care Unit ({careunit})"] = 1
+                
+            prob = results['Random Forest']['model_obj'].predict_proba(sample_df)[0][1]
+            if prob > 0.4:
+                st.error(f"🚨 **HIGH RISK**: {prob*100:.1f}% probability of non-survival.")
+            else:
+                st.success(f"✅ **LOWER RISK**: {prob*100:.1f}% probability of non-survival.")
+    else:
+        st.info(f"Custom form input mapping for {d_type} schema is under construction. Please use Centralized Models for analytical evaluations.")
