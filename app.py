@@ -52,11 +52,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-<<<<<<< HEAD
 @st.cache_data
-=======
 @st.cache_resource
->>>>>>> 6ca4f56 (Streamlining...)
 def load_and_prep_all():
     df = load_data()
     df_ml = preprocess_data(df)
