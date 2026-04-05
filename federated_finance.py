@@ -11,15 +11,26 @@ import xgboost as xgb
 # ==========================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # Note: FL finance.ipynb didn't specify a dataset in the output, let's assume 'finance_data.csv' 
-data_path = os.path.join(current_dir, "data", "finance_data.csv")
+data_path = os.path.join(current_dir, "data", "german_credit_data.csv")
 if not os.path.exists(data_path):
-    data_path = os.path.join(current_dir, "finance_data.csv")
+    data_path = os.path.join(current_dir, "german_credit_data.csv")
 
 try:
     df = pd.read_csv(data_path)
-    # Assume last column is target
-    X = df.iloc[:, :-1]
-    y = df.iloc[:, -1]
+    # Drop the first column if it's an unnamed index
+    if "Unnamed: 0" in df.columns[0]:
+        df = df.drop(df.columns[0], axis=1)
+        
+    X_raw = df.iloc[:, :-1]
+    # One-hot encode categorical features and ensure numeric types for XGBoost
+    X = pd.get_dummies(X_raw).astype(float)
+    
+    y_raw = df.iloc[:, -1]
+    # Map target strings to binary
+    if y_raw.dtype == 'object':
+        y = (y_raw == y_raw.unique()[0]).astype(int)
+    else:
+        y = y_raw
 except FileNotFoundError:
     print(f"Warning: Dataset not found at {data_path}. Creating dummy data for testing.")
     X = pd.DataFrame(np.random.rand(100, 10))
